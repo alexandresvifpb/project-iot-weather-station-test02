@@ -44,19 +44,19 @@ static const char *TAG_TCP = "tcp_client";
 #define I2C_MASTER_ACK 0
 #define I2C_MASTER_NACK 1
 
-// static const char *TAG_BME280 = "BME280-TST02";
+static uint8_t flag_alive = 0;
+static uint8_t flag_sensor = 0;
 
-// Variáveis compartilhadas entre as tarefas
-// SemaphoreHandle_t xSemaphore;
-// static float pressure_s32 = 9535.84;
-// static float temperature_s32 = 34.69;
-// static float humidity_s32 = 56.947;
-static uint8_t type_msg = 0;
+// static s32 pressure_s32;
+// static s32 temperature_s32;
+// static s32 humidity_s32;
+static double temperature_double;
+static double pressure_double;
+static double humidity_double;
 
-static s32 pressure_s32;
-static s32 temperature_s32;
-static s32 humidity_s32;
+static const char *TAG_BME280 = "bme280";
 
+// Cria o semáforo
 SemaphoreHandle_t xSemaphore = NULL;
 SemaphoreHandle_t xMutex = NULL;
 
@@ -178,12 +178,13 @@ void tcp_client(void *pvParam)
         // login realizado, envia dados
         else if (loging_status == 1)
         {
-            // if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (type_msg == 0) && (xSemaphoreTake(xMutex, portMAX_DELAY)))
-            if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (type_msg == 0))
+            // if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (flag_alive == 0) && (xSemaphoreTake(xMutex, portMAX_DELAY)))
+            if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (flag_sensor == 1))
             {
                 if ((xSemaphoreTake(xMutex, portMAX_DELAY)))
                 {
-                    sprintf(tx_buffer, "{\"temperature\": %.2f, \"pressure\": %.2f, \"humidity\": %.2f}", (float)temperature_s32, (float)pressure_s32, (float)humidity_s32);
+                    // sprintf(tx_buffer, "{\"temperature\": %.2f, \"pressure\": %.2f, \"humidity\": %.2f}", (float)temperature_s32, (float)pressure_s32, (float)humidity_s32);
+                    sprintf(tx_buffer, "{\"temperature\": %.2f, \"pressure\": %.2f, \"humidity\": %.2f}", temperature_double, pressure_double, humidity_double);
                     ESP_LOGI(TAG_TCP, "Sending: %s", tx_buffer);
                     err = send(sock, tx_buffer, strlen(tx_buffer), 0);
                     if (err < 0)
@@ -207,9 +208,10 @@ void tcp_client(void *pvParam)
                     // Libera o mutex
                     xSemaphoreGive(xMutex);
                 }
+                flag_sensor = 0;
             }
-            // else if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (type_msg == 1) && (xSemaphoreTake(xMutex, portMAX_DELAY)))
-            if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (type_msg == 1))
+            // else if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (flag_alive == 1) && (xSemaphoreTake(xMutex, portMAX_DELAY)))
+            if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (flag_alive == 1))
             {
                 if ((xSemaphoreTake(xMutex, portMAX_DELAY)))
                 {
@@ -254,6 +256,7 @@ void tcp_client(void *pvParam)
                     // Libera o mutex
                     xSemaphoreGive(xMutex);
                 }
+                flag_alive = 0;
             }
             continue;
         }
@@ -293,25 +296,143 @@ void tcp_client(void *pvParam)
     vTaskDelete(NULL);
 }
 
+void i2c_master_init()
+{
+    i2c_config_t i2c_config = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = SDA_PIN,
+        .scl_io_num = SCL_PIN,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = 1000000};
+    i2c_param_config(I2C_NUM_0, &i2c_config);
+    i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
+}
+s8 BME280_I2C_bus_write(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
+{
+    s32 iError = BME280_INIT_VALUE;
+
+    esp_err_t espRc;
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, true);
+
+    i2c_master_write_byte(cmd, reg_addr, true);
+    i2c_master_write(cmd, reg_data, cnt, true);
+    i2c_master_stop(cmd);
+
+    espRc = i2c_master_cmd_begin(I2C_NUM_0, cmd, 10 / portTICK_PERIOD_MS);
+    if (espRc == ESP_OK)
+    {
+        iError = SUCCESS;
+    }
+    else
+    {
+        iError = FAIL;
+    }
+    i2c_cmd_link_delete(cmd);
+
+    return (s8)iError;
+}
+
+s8 BME280_I2C_bus_read(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
+{
+    s32 iError = BME280_INIT_VALUE;
+    esp_err_t espRc;
+
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg_addr, true);
+
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_READ, true);
+
+    if (cnt > 1)
+    {
+        i2c_master_read(cmd, reg_data, cnt - 1, I2C_MASTER_ACK);
+    }
+    i2c_master_read_byte(cmd, reg_data + cnt - 1, I2C_MASTER_NACK);
+    i2c_master_stop(cmd);
+
+    espRc = i2c_master_cmd_begin(I2C_NUM_0, cmd, 10 / portTICK_PERIOD_MS);
+    if (espRc == ESP_OK)
+    {
+        iError = SUCCESS;
+    }
+    else
+    {
+        iError = FAIL;
+    }
+
+    i2c_cmd_link_delete(cmd);
+
+    return (s8)iError;
+}
+
+void BME280_delay_msek(u32 msek)
+{
+    vTaskDelay(msek / portTICK_PERIOD_MS);
+}
+
 // tarefa para leitura do sensor BME280
 void bme280_task(void *pvParameter)
 {
-    while (1)
+    struct bme280_t bme280 = {
+        .bus_write = BME280_I2C_bus_write,
+        .bus_read = BME280_I2C_bus_read,
+        .dev_addr = BME280_I2C_ADDRESS1,
+        .delay_msec = BME280_delay_msek};
+
+    s32 com_rslt;
+
+    com_rslt = bme280_init(&bme280);
+
+    com_rslt += bme280_set_oversamp_pressure(BME280_OVERSAMP_16X);
+    com_rslt += bme280_set_oversamp_temperature(BME280_OVERSAMP_2X);
+    com_rslt += bme280_set_oversamp_humidity(BME280_OVERSAMP_1X);
+
+    com_rslt += bme280_set_standby_durn(BME280_STANDBY_TIME_1_MS);
+    com_rslt += bme280_set_filter(BME280_FILTER_COEFF_16);
+
+    com_rslt += bme280_set_power_mode(BME280_NORMAL_MODE);
+
+    static s32 pressure_s32;
+    static s32 temperature_s32;
+    static s32 humidity_s32;
+
+    while (true)
     {
-        xSemaphoreGive(xSemaphore);
-        type_msg = 0;
         vTaskDelay(1000 / portTICK_PERIOD_MS);
+        com_rslt = bme280_read_uncomp_pressure_temperature_humidity(
+            &pressure_s32, &temperature_s32, &humidity_s32);
+
+        if (com_rslt == SUCCESS)
+        {
+            temperature_double = bme280_compensate_temperature_double(temperature_s32);
+            pressure_double = bme280_compensate_pressure_double(pressure_s32)/100;
+            humidity_double = bme280_compensate_humidity_double(humidity_s32);
+            xSemaphoreGive(xSemaphore);
+        }
+        else
+        {
+            ESP_LOGE(TAG_BME280, "measure error. code: %d", com_rslt);
+        }
+        xSemaphoreGive(xSemaphore);
+        flag_sensor = 1;
     }
 }
 
 void alive_task(void *pvParameter)
 {
-    while (1)
+    while (true)
     {
         printf("alive\n");
 
         xSemaphoreGive(xSemaphore);
-        type_msg = 1;
+        flag_alive = 1;
         vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }
@@ -328,13 +449,13 @@ void app_main()
     }
     ESP_ERROR_CHECK(ret);
     initialise_wifi();
-
-    xSemaphore = xSemaphoreCreateBinary();
+    i2c_master_init();
 
     // Cria o mutex
     xMutex = xSemaphoreCreateMutex();
+    xSemaphore = xSemaphoreCreateBinary();
 
     xTaskCreate(&alive_task, "alive massege", 1024, NULL, 5, NULL);
-    xTaskCreate(&bme280_task, "read sensor bme280", 2048, NULL, 6, NULL);
+    xTaskCreate(&bme280_task, "read sensor bme280", 4096, NULL, 6, NULL);
     xTaskCreate(&tcp_client, "tcp_client", 4096, NULL, 5, NULL);
 }
