@@ -1,0 +1,24 @@
+# Arquivos e diretórios gerados automaticamente
+build/
+sdkconfig*
+CMakeLists.txt.user
+
+# Arquivos de compilação e saída
+*.bin
+*.elf
+*.bin.gz
+*.map
+*.project
+*.properties
+
+# Diretório IDF (opcional)
+tools/
+
+# Diretório de logs
+log/
+
+# Diretório de depuração
+__pycache__/
+
+# Diretório de distribuição
+dist/
