@@ -58,6 +58,7 @@ static s32 temperature_s32;
 static s32 humidity_s32;
 
 SemaphoreHandle_t xSemaphore = NULL;
+SemaphoreHandle_t xMutex = NULL;
 
 // conectar na rede wifi
 void wifi_connect()
@@ -177,68 +178,81 @@ void tcp_client(void *pvParam)
         // login realizado, envia dados
         else if (loging_status == 1)
         {
+            // if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (type_msg == 0) && (xSemaphoreTake(xMutex, portMAX_DELAY)))
             if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (type_msg == 0))
             {
-                sprintf(tx_buffer, "{\"temperature\": %.2f, \"pressure\": %.2f, \"humidity\": %.2f}", (float)temperature_s32, (float)pressure_s32, (float)humidity_s32);
-                ESP_LOGI(TAG_TCP, "Sending: %s", tx_buffer);
-                err = send(sock, tx_buffer, strlen(tx_buffer), 0);
-                if (err < 0)
+                if ((xSemaphoreTake(xMutex, portMAX_DELAY)))
                 {
-                    ESP_LOGE(TAG_TCP, "Error occurred during sending msg0: errno %d", errno);
-                    error_count++;
-                    if (error_count >= 10)
+                    sprintf(tx_buffer, "{\"temperature\": %.2f, \"pressure\": %.2f, \"humidity\": %.2f}", (float)temperature_s32, (float)pressure_s32, (float)humidity_s32);
+                    ESP_LOGI(TAG_TCP, "Sending: %s", tx_buffer);
+                    err = send(sock, tx_buffer, strlen(tx_buffer), 0);
+                    if (err < 0)
                     {
-                        ESP_LOGI(TAG_TCP, "Too many errors msg0, reconnecting...");
-                        shutdown(sock, 0);
-                        close(sock);
-                        sock = -1;
-                        error_count = 0;
-                        loging_status = 0;
-                    }
-                }
-                else
-                {
-                    error_count = 0; // Reset error count after successful send
-                }
-            }
-            else if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (type_msg == 1))
-            {
-                sprintf(tx_buffer, "alive");
-                ESP_LOGI(TAG_TCP, "Sending: %s", tx_buffer);
-                err = send(sock, tx_buffer, strlen(tx_buffer), 0);
-                if (err < 0)
-                {
-                    ESP_LOGE(TAG_TCP, "Error occurred during sending msg1: errno %d", errno);
-                    error_count++;
-                    if (error_count >= 10)
-                    {
-                        ESP_LOGI(TAG_TCP, "Too many errors msg1, reconnecting...");
-                        shutdown(sock, 0);
-                        close(sock);
-                        sock = -1;
-                        error_count = 0;
-                        loging_status = 0;
-                    }
-                }
-                else
-                {
-                    error_count = 0; // Reset error count after successful send
-
-                    int len_recv = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
-                    // Error occurred during receiving
-                    if (len_recv < 0)
-                    {
-                        ESP_LOGE(TAG_TCP, "recv failed: errno %d", errno);
-                    }
-                    // Data received
-                    else
-                    {
-                        rx_buffer[len_recv] = 0; // Null-terminate whatever we received and treat like a string
-                        if (strcmp(rx_buffer, "ok") == 0)
+                        ESP_LOGE(TAG_TCP, "Error occurred during sending msg0: errno %d", errno);
+                        error_count++;
+                        if (error_count >= 10)
                         {
-                            printf("Alive recebido com sucesso\n");
+                            ESP_LOGI(TAG_TCP, "Too many errors msg0, reconnecting...");
+                            shutdown(sock, 0);
+                            close(sock);
+                            sock = -1;
+                            error_count = 0;
+                            loging_status = 0;
                         }
                     }
+                    else
+                    {
+                        error_count = 0; // Reset error count after successful send
+                    }
+                    // Libera o mutex
+                    xSemaphoreGive(xMutex);
+                }
+            }
+            // else if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (type_msg == 1) && (xSemaphoreTake(xMutex, portMAX_DELAY)))
+            if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (type_msg == 1))
+            {
+                if ((xSemaphoreTake(xMutex, portMAX_DELAY)))
+                {
+
+                    sprintf(tx_buffer, "alive");
+                    ESP_LOGI(TAG_TCP, "Sending: %s", tx_buffer);
+                    err = send(sock, tx_buffer, strlen(tx_buffer), 0);
+                    if (err < 0)
+                    {
+                        ESP_LOGE(TAG_TCP, "Error occurred during sending msg1: errno %d", errno);
+                        error_count++;
+                        if (error_count >= 10)
+                        {
+                            ESP_LOGI(TAG_TCP, "Too many errors msg1, reconnecting...");
+                            shutdown(sock, 0);
+                            close(sock);
+                            sock = -1;
+                            error_count = 0;
+                            loging_status = 0;
+                        }
+                    }
+                    else
+                    {
+                        error_count = 0; // Reset error count after successful send
+
+                        int len_recv = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
+                        // Error occurred during receiving
+                        if (len_recv < 0)
+                        {
+                            ESP_LOGE(TAG_TCP, "recv failed: errno %d", errno);
+                        }
+                        // Data received
+                        else
+                        {
+                            rx_buffer[len_recv] = 0; // Null-terminate whatever we received and treat like a string
+                            if (strcmp(rx_buffer, "ok") == 0)
+                            {
+                                printf("Alive recebido com sucesso\n");
+                            }
+                        }
+                    }
+                    // Libera o mutex
+                    xSemaphoreGive(xMutex);
                 }
             }
             continue;
@@ -282,15 +296,23 @@ void tcp_client(void *pvParam)
 // tarefa para leitura do sensor BME280
 void bme280_task(void *pvParameter)
 {
+    while (1)
+    {
+        xSemaphoreGive(xSemaphore);
+        type_msg = 0;
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
 }
 
 void alive_task(void *pvParameter)
 {
     while (1)
     {
+        printf("alive\n");
+
         xSemaphoreGive(xSemaphore);
         type_msg = 1;
-        vTaskDelay(10000 / portTICK_RATE_MS);
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }
 
@@ -309,6 +331,10 @@ void app_main()
 
     xSemaphore = xSemaphoreCreateBinary();
 
+    // Cria o mutex
+    xMutex = xSemaphoreCreateMutex();
+
     xTaskCreate(&alive_task, "alive massege", 1024, NULL, 5, NULL);
+    xTaskCreate(&bme280_task, "read sensor bme280", 2048, NULL, 6, NULL);
     xTaskCreate(&tcp_client, "tcp_client", 4096, NULL, 5, NULL);
 }
