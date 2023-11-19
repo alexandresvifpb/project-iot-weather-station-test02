@@ -405,7 +405,7 @@ void bme280_task(void *pvParameter)
 
     while (true)
     {
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
         com_rslt = bme280_read_uncomp_pressure_temperature_humidity(
             &pressure_s32, &temperature_s32, &humidity_s32);
 
