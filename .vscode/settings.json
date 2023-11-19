@@ -12,5 +12,6 @@
     ],
     "idf.portWin": "COM10",
     "idf.pythonBinPathWin": "C:\\Users\\alexa\\.espressif\\python_env\\idf4.4_py3.8_env\\Scripts\\python.exe",
-    "idf.toolsPathWin": "C:\\Users\\alexa\\.espressif"
+    "idf.toolsPathWin": "C:\\Users\\alexa\\.espressif",
+    "C_Cpp.errorSquiggles": "disabled"
 }

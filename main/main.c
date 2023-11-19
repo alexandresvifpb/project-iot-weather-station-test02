@@ -32,24 +32,23 @@
 #define TCPServerIP "159.203.79.141"
 #define PORT 50000
 
+// id do dispositivo
 static const char *id = "202321234567";
 
 static EventGroupHandle_t wifi_event_group;
 const int CONNECTED_BIT = BIT0;
 static const char *TAG_TCP = "tcp_client";
 
-// define para o sensor BME280
+// defines para o sensor BME280
 #define SDA_PIN GPIO_NUM_5
 #define SCL_PIN GPIO_NUM_4
 #define I2C_MASTER_ACK 0
 #define I2C_MASTER_NACK 1
 
+// Variáveis globais
 static uint8_t flag_alive = 0;
 static uint8_t flag_sensor = 0;
 
-// static s32 pressure_s32;
-// static s32 temperature_s32;
-// static s32 humidity_s32;
 static double temperature_double;
 static double pressure_double;
 static double humidity_double;
@@ -178,12 +177,10 @@ void tcp_client(void *pvParam)
         // login realizado, envia dados
         else if (loging_status == 1)
         {
-            // if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (flag_alive == 0) && (xSemaphoreTake(xMutex, portMAX_DELAY)))
             if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (flag_sensor == 1))
             {
                 if ((xSemaphoreTake(xMutex, portMAX_DELAY)))
                 {
-                    // sprintf(tx_buffer, "{\"temperature\": %.2f, \"pressure\": %.2f, \"humidity\": %.2f}", (float)temperature_s32, (float)pressure_s32, (float)humidity_s32);
                     sprintf(tx_buffer, "{\"temperature\": %.2f, \"pressure\": %.2f, \"humidity\": %.2f}", temperature_double, pressure_double, humidity_double);
                     ESP_LOGI(TAG_TCP, "Sending: %s", tx_buffer);
                     err = send(sock, tx_buffer, strlen(tx_buffer), 0);
@@ -210,7 +207,7 @@ void tcp_client(void *pvParam)
                 }
                 flag_sensor = 0;
             }
-            // else if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (flag_alive == 1) && (xSemaphoreTake(xMutex, portMAX_DELAY)))
+
             if (xSemaphoreTake(xSemaphore, portMAX_DELAY) && (flag_alive == 1))
             {
                 if ((xSemaphoreTake(xMutex, portMAX_DELAY)))
@@ -296,6 +293,9 @@ void tcp_client(void *pvParam)
     vTaskDelete(NULL);
 }
 
+// funções para o sensor BME280
+
+// inicializa o i2c
 void i2c_master_init()
 {
     i2c_config_t i2c_config = {
@@ -308,6 +308,8 @@ void i2c_master_init()
     i2c_param_config(I2C_NUM_0, &i2c_config);
     i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
 }
+
+// Escreve no barramento I2C
 s8 BME280_I2C_bus_write(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
 {
     s32 iError = BME280_INIT_VALUE;
@@ -336,6 +338,7 @@ s8 BME280_I2C_bus_write(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
     return (s8)iError;
 }
 
+// Le do barramento I2C
 s8 BME280_I2C_bus_read(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
 {
     s32 iError = BME280_INIT_VALUE;
@@ -372,12 +375,13 @@ s8 BME280_I2C_bus_read(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
     return (s8)iError;
 }
 
+// Delay
 void BME280_delay_msek(u32 msek)
 {
     vTaskDelay(msek / portTICK_PERIOD_MS);
 }
 
-// tarefa para leitura do sensor BME280
+// Thread para leitura do sensor BME280
 void bme280_task(void *pvParameter)
 {
     struct bme280_t bme280 = {
@@ -425,18 +429,20 @@ void bme280_task(void *pvParameter)
     }
 }
 
+
+// Thread para enviar alive
 void alive_task(void *pvParameter)
 {
     while (true)
     {
         printf("alive\n");
-
         xSemaphoreGive(xSemaphore);
         flag_alive = 1;
         vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }
 
+// main
 void app_main()
 {
     ESP_ERROR_CHECK(esp_event_loop_init(event_handler, NULL));
