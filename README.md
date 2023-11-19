@@ -2,7 +2,7 @@ Este projeto faz parte da avaliação final do Ciclo 1 em IoT da capacitação e
 
 O tema escolhido para o projeto foi uma estação meteorológica para captura de dados climáticos, como temperatura e umidade do ar, além da pressão atmosférica.
 
-No projeto, desenvolveu-se a parte de hardware e firmware do nó responsável pela coleta e envio dos dados, bem como uma aplicação simples de monitoramento para visualização dos dados enviados ao servidor disponibilizado para o projeto.
+No projeto, desenvolveu-se a parte de hardware e firmware do nó IoT (node) responsável pela coleta e envio dos dados, bem como uma aplicação simples de monitoramento para visualização dos dados enviados ao servidor disponibilizado para o projeto.
 
 Vídeo com a apresentação do projeto <https://youtube.com/live/toMIJzutXAY?feature=share>
 
